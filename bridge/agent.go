@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 //	fsbridge connects to the agent URL with query params:
 //	  ?uuid=<fs-call-uuid>&session=<id>&rate=16000&mix=mono
 //	fsbridge -> agent:
-//	  {"type":"start","uuid":...,"session":...,"rate":16000,"mix":"mono"}
+//	  {"type":"start","uuid":...,"session":...,"rate":16000,"mix":"mono",
+//	   "caller":...,"destination":...,"direction":...}  (call context via ESL uuid_dump, when available)
 //	  {"type":"metadata","data":<call metadata JSON>}   (if the module sent any)
 //	  binary frames: uplink L16 PCM from the caller
 //	  {"type":"stop"}                                   (call/stream ended)
@@ -44,6 +46,21 @@ type AgentMessage struct {
 	Mix     string          `json:"mix,omitempty"`
 	Name    string          `json:"name,omitempty"`
 	Data    json.RawMessage `json:"data,omitempty"`
+
+	// Call context, populated on the "start" frame when ESL is available.
+	Caller      string `json:"caller,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Direction   string `json:"direction,omitempty"`
+}
+
+// CallInfo describes the FreeSWITCH side of a call. It is resolved via ESL
+// uuid_dump when the agent socket opens; fields are empty when ESL is not
+// configured or the lookup fails.
+type CallInfo struct {
+	UUID        string
+	Caller      string // Caller-Caller-ID-Number
+	Destination string // Caller-Destination-Number
+	Direction   string // Call-Direction ("inbound" | "outbound")
 }
 
 // AgentForwarder is a bridge.Handler that forwards each call's audio to an
@@ -51,8 +68,13 @@ type AgentMessage struct {
 // pattern). The agent app owns the AI logic; fsbridge owns telephony.
 type AgentForwarder struct {
 	// URL of the agent app's WebSocket endpoint, e.g. "ws://agent:9000/call".
+	// Used when Route is nil or returns "".
 	URL string
-	// ESL enables agent-issued call control (hangup). Optional.
+	// Route optionally resolves the agent URL per call (e.g. by DID or
+	// caller). Return "" to fall back to URL.
+	Route func(CallInfo) string
+	// ESL enables agent-issued call control (hangup) and call context lookup
+	// (uuid_dump) for the start frame. Optional.
 	ESL ESLAPI
 	// Bus receives agent-published events. Optional.
 	Bus *EventBus
@@ -96,11 +118,53 @@ func (ac *agentConn) writeJSON(msg AgentMessage) error {
 	return ac.conn.Write(ctx, websocket.MessageText, data)
 }
 
+// callInfo resolves the FreeSWITCH call context via ESL uuid_dump. The
+// lookup is bounded to 2s so a slow ESL never stalls media setup; any
+// failure just yields an info with only UUID set.
+func (a *AgentForwarder) callInfo(log *slog.Logger, s *Session) CallInfo {
+	ci := CallInfo{UUID: s.FSUUID()}
+	if a.ESL == nil || s.FSUUID() == "" {
+		return ci
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	dump, err := a.ESL.API(ctx, "uuid_dump "+s.FSUUID())
+	cancel()
+	if err != nil {
+		log.Warn("uuid_dump failed; start frame lacks call context", "err", err)
+		return ci
+	}
+	h := parseKeyValueLines(dump)
+	ci.Caller = h["Caller-Caller-ID-Number"]
+	ci.Destination = h["Caller-Destination-Number"]
+	ci.Direction = h["Call-Direction"]
+	return ci
+}
+
+// parseKeyValueLines parses ESL-style "Key: value" lines (uuid_dump output).
+func parseKeyValueLines(s string) map[string]string {
+	out := make(map[string]string)
+	for _, line := range strings.Split(s, "\n") {
+		if k, v, ok := strings.Cut(line, ": "); ok {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return out
+}
+
 // OnStart dials the agent app and starts forwarding.
 func (a *AgentForwarder) OnStart(s *Session) {
 	log := a.logger().With("id", s.ID(), "fs_uuid", s.FSUUID())
 
-	u, err := url.Parse(a.URL)
+	ci := a.callInfo(log, s)
+
+	agentURL := a.URL
+	if a.Route != nil {
+		if r := a.Route(ci); r != "" {
+			agentURL = r
+		}
+	}
+
+	u, err := url.Parse(agentURL)
 	if err != nil {
 		log.Error("bad agent URL", "err", err)
 		s.Close()
@@ -134,6 +198,7 @@ func (a *AgentForwarder) OnStart(s *Session) {
 	if err := ac.writeJSON(AgentMessage{
 		Type: AgentMsgStart, UUID: s.FSUUID(), Session: s.ID(),
 		Rate: s.SampleRate(), Mix: s.MixType(),
+		Caller: ci.Caller, Destination: ci.Destination, Direction: ci.Direction,
 	}); err != nil {
 		log.Error("agent start frame failed", "err", err)
 		a.mu.Delete(s)

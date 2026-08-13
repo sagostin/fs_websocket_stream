@@ -25,6 +25,7 @@ and pointers to the canonical implementations in [`examples/`](./examples/).
 
 | Doc | When you need it |
 |---|---|
+| [`docs/deployment.md`](./docs/deployment.md) | Deploy for real — Docker/compose, full flag & env reference, FreeSWITCH-side config, TLS/LB, health checks, production checklist. |
 | [`docs/bridge-handler.md`](./docs/bridge-handler.md) | Implement your own `bridge.Handler` (custom audio processing, transcript collection, integration with another system). |
 | [`docs/agent-apps.md`](./docs/agent-apps.md) | Build an external AI voice-agent service (your own voicebot, an agent framework integration, a multi-language service). |
 | [`docs/logging.md`](./docs/logging.md) | Per-call logging strategy — `slog` field conventions, log correlation by FreeSWITCH UUID, Loki shipping, publishing custom events. |
@@ -151,7 +152,8 @@ fsbridge connects to `-agent-url` with `?uuid=<fs-call-uuid>&session=<id>&rate=1
 **fsbridge → agent**
 
 ```jsonc
-{"type":"start","uuid":"...","session":"...","rate":16000,"mix":"mono"}
+{"type":"start","uuid":"...","session":"...","rate":16000,"mix":"mono",
+ "caller":"+15551234567","destination":"9999","direction":"inbound"}  // context via ESL uuid_dump, when -esl-addr is set
 {"type":"metadata","data":{...}}   // call metadata from the dialplan, if any
 // binary frames: caller audio, L16 PCM
 {"type":"stop"}                    // call/stream ended
@@ -170,6 +172,16 @@ fsbridge connects to `-agent-url` with `?uuid=<fs-call-uuid>&session=<id>&rate=1
 barge-in, conversation history, and the same ASR/LLM/TTS stages (Deepgram /
 OpenAI / ElevenLabs, or mocks) running as a standalone service. Flags:
 `-addr :9000`, `-path /call`, `-mode mock|ai`.
+
+### Placing outbound calls as an agent
+
+The agent app (or a sidecar) sends `originate` on `/control`; the reply
+carries the new call's `uuid`. When the called leg lands on the AI
+extension and answers, fsbridge dials your agent exactly like an inbound
+call — the `start` frame's `direction` is `outbound` and `destination` is
+the dialed number, and any `metadata` you passed to `originate` arrives in
+the `metadata` frame. Full walkthrough:
+[docs/agent-apps.md](docs/agent-apps.md#placing-calls-as-an-agent).
 
 ### Choosing in-process (`ai`) vs external (`agent`) mode
 
@@ -190,7 +202,10 @@ out. One JSON message per frame.
 ```jsonc
 // Place a call. dest is any FS dial string; the called leg lands on
 // extension ext (default 9999, i.e. the AI bridge) in context default.
-{"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/trunk/18005551212","ext":"9999","cid":"15551234567"}}
+// The reply carries the new call's uuid; vars/metadata are set as channel
+// variables (metadata reaches the agent via the dialplan's metadata arg).
+{"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/trunk/18005551212","ext":"9999","cid":"15551234567",
+  "vars":{"account":"acme"},"metadata":"{\"customer_id\":\"42\"}"}}
 // ...or run an app instead of hunting the dialplan:
 {"id":"1","cmd":"originate","args":{"dest":"loopback/9999","app":"park"}}
 

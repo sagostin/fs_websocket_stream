@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,9 @@ type ControlReply struct {
 	OK     bool   `json:"ok"`
 	Result string `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// UUID is the FreeSWITCH call UUID for originate replies, parsed out of
+	// the "+OK <uuid>" response.
+	UUID string `json:"uuid,omitempty"`
 }
 
 // ControlServer exposes call control and the event stream to the external
@@ -33,7 +37,9 @@ type ControlReply struct {
 //
 // Commands (args are command-specific):
 //
-//	{"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/x/18005551212","ext":"9999"}}
+//	{"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/x/18005551212","ext":"9999",
+//	  "cid":"15551234567","vars":{"k":"v"},"metadata":"{...}"}}
+//	  (originate replies also carry the new call's uuid in the reply's uuid field)
 //	{"id":"2","cmd":"hangup","args":{"uuid":"..."}}
 //	{"id":"3","cmd":"transfer","args":{"uuid":"...","dest":"1002"}}
 //	{"id":"4","cmd":"hold","args":{"uuid":"..."}}   / "unhold"
@@ -145,18 +151,17 @@ func (cs *ControlServer) execute(ctx context.Context, cmd ControlCommand) Contro
 	switch cmd.Cmd {
 	case "originate":
 		var args struct {
-			Dest string `json:"dest"` // e.g. "sofia/gateway/trunk/18005551212" or "loopback/9999"
-			Ext  string `json:"ext"`  // dialplan extension the called leg lands on; default 9999
-			App  string `json:"app"`  // optional app instead of dialplan (e.g. "park")
-			CID  string `json:"cid"`  // optional caller ID number
+			Dest     string            `json:"dest"`     // e.g. "sofia/gateway/trunk/18005551212" or "loopback/9999"
+			Ext      string            `json:"ext"`      // dialplan extension the called leg lands on; default 9999
+			App      string            `json:"app"`      // optional app instead of dialplan (e.g. "park")
+			CID      string            `json:"cid"`      // optional caller ID number
+			Vars     map[string]string `json:"vars"`     // extra originate channel variables
+			Metadata string            `json:"metadata"` // JSON forwarded to the agent via the ws_bridge_metadata channel var
 		}
 		if err := json.Unmarshal(cmd.Args, &args); err != nil || args.Dest == "" {
 			return fail(fmt.Errorf("originate requires args.dest"))
 		}
-		vars := ""
-		if args.CID != "" {
-			vars = "{origination_caller_id_number=" + args.CID + "}"
-		}
+		vars := buildOriginateVars(args.CID, args.Vars, args.Metadata)
 		if args.App != "" {
 			eslCmd = fmt.Sprintf("originate %s%s &%s", vars, args.Dest, strings.TrimPrefix(args.App, "&"))
 		} else {
@@ -237,7 +242,47 @@ func (cs *ControlServer) execute(ctx context.Context, cmd ControlCommand) Contro
 	}
 	reply.OK = true
 	reply.Result = result
+	if cmd.Cmd == "originate" {
+		reply.UUID = parseOriginateUUID(result)
+	}
 	return reply
+}
+
+// parseOriginateUUID extracts the call UUID from a successful originate
+// reply ("+OK <uuid>"). Returns "" otherwise.
+func parseOriginateUUID(result string) string {
+	fields := strings.Fields(result)
+	if len(fields) >= 2 && fields[0] == "+OK" {
+		return fields[1]
+	}
+	return ""
+}
+
+// buildOriginateVars renders the originate variable block ("{k=v,...}" or
+// ""). The caller ID comes first, then user vars in sorted key order, then
+// ws_bridge_metadata last so it's easy to spot in logs. Note: values must
+// not contain "," or "}" — FreeSWITCH would split them as variable
+// separators.
+func buildOriginateVars(cid string, vars map[string]string, metadata string) string {
+	var parts []string
+	if cid != "" {
+		parts = append(parts, "origination_caller_id_number="+cid)
+	}
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		parts = append(parts, k+"="+vars[k])
+	}
+	if metadata != "" {
+		parts = append(parts, "ws_bridge_metadata="+metadata)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 func uuidArg(args json.RawMessage) (string, error) {

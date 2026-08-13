@@ -77,6 +77,9 @@ func TestControlCommands(t *testing.T) {
 			"originate {origination_caller_id_number=15551234567}sofia/gateway/twilio/18005551212 9999 XML default"},
 		{ControlCommand{ID: "7", Cmd: "originate", Args: json.RawMessage(`{"dest":"loopback/9999","app":"park"}`)},
 			"originate loopback/9999 &park"},
+		{ControlCommand{ID: "8", Cmd: "originate", Args: json.RawMessage(
+			`{"dest":"sofia/gateway/twilio/18005551212","cid":"15551234567","vars":{"account":"acme","tries":"1"},"metadata":"{\"customer_id\":\"42\"}"}`)},
+			`originate {origination_caller_id_number=15551234567,account=acme,tries=1,ws_bridge_metadata={"customer_id":"42"}}sofia/gateway/twilio/18005551212 9999 XML default`},
 	}
 	for _, tc := range cases {
 		reply := sendCommand(t, conn, tc.cmd)
@@ -89,6 +92,39 @@ func TestControlCommands(t *testing.T) {
 		if esl.lastCmd != tc.want {
 			t.Errorf("%s: ESL cmd = %q, want %q", tc.cmd.Cmd, esl.lastCmd, tc.want)
 		}
+	}
+}
+
+func TestControlOriginateUUIDReply(t *testing.T) {
+	esl := &fakeESL{reply: "+OK 7c1c9f2e-dead-beef-0000-1234567890ab", events: make(chan ESLEvent)}
+	cs := &ControlServer{ESL: esl}
+	conn := dialControl(t, cs)
+
+	reply := sendCommand(t, conn, ControlCommand{
+		ID: "o1", Cmd: "originate", Args: json.RawMessage(`{"dest":"loopback/9999"}`),
+	})
+	if !reply.OK {
+		t.Fatalf("originate failed: %s", reply.Error)
+	}
+	if reply.UUID != "7c1c9f2e-dead-beef-0000-1234567890ab" {
+		t.Errorf("reply uuid = %q", reply.UUID)
+	}
+
+	// Non-originate replies carry no uuid.
+	reply = sendCommand(t, conn, ControlCommand{
+		ID: "h1", Cmd: "hangup", Args: json.RawMessage(`{"uuid":"abc"}`),
+	})
+	if !reply.OK || reply.UUID != "" {
+		t.Errorf("hangup reply = %+v", reply)
+	}
+}
+
+func TestParseOriginateUUID(t *testing.T) {
+	if got := parseOriginateUUID("+OK abc-123\n"); got != "abc-123" {
+		t.Errorf("parseOriginateUUID ok = %q", got)
+	}
+	if got := parseOriginateUUID("-ERR NO_ANSWER"); got != "" {
+		t.Errorf("parseOriginateUUID err = %q", got)
 	}
 }
 
@@ -121,21 +157,28 @@ func TestControlEventStream(t *testing.T) {
 	cs := &ControlServer{Bus: bus}
 	conn := dialControl(t, cs)
 
-	// Publish until the subscription is live and one event arrives.
-	var data []byte
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		bus.Publish(Event{Name: "call.answer", UUID: "abc-123", Data: map[string]any{"caller": "1000"}})
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		_, raw, err := conn.Read(ctx)
-		cancel()
-		if err == nil {
-			data = raw
-			break
+	// Republish until the server-side subscription is live, then stop.
+	// (coder/websocket read errors are permanent, so the client must use a
+	// single read with a generous deadline rather than short retry timeouts.)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			bus.Publish(Event{Name: "call.answer", UUID: "abc-123", Data: map[string]any{"caller": "1000"}})
+			time.Sleep(50 * time.Millisecond)
 		}
-	}
-	if data == nil {
-		t.Fatal("no event received")
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_, data, err := conn.Read(ctx)
+	cancel()
+	if err != nil {
+		t.Fatalf("no event received: %v", err)
 	}
 	var ev Event
 	if err := json.Unmarshal(data, &ev); err != nil {

@@ -48,11 +48,18 @@ The protocol is symmetrical JSON text frames plus binary PCM.
 **Bridge → agent**
 
 ```jsonc
-{"type":"start","uuid":"<fs-uuid>","session":"<id>","rate":16000,"mix":"mono"}
+{"type":"start","uuid":"<fs-uuid>","session":"<id>","rate":16000,"mix":"mono",
+ "caller":"+15551234567","destination":"9999","direction":"inbound"}
 {"type":"metadata","data":{...}}            // dialplan metadata (may be absent)
 <binary frames: caller audio, L16 PCM>
 {"type":"stop"}                             // call/stream ended
 ```
+
+The `start` frame's `caller` / `destination` / `direction` come from an ESL
+`uuid_dump` the bridge performs when the socket opens (requires `-esl-addr`
+on the bridge). If ESL is unavailable the fields are simply omitted, so
+treat them as optional. Use them to distinguish inbound from outbound calls
+and to greet the right person — no dialplan changes needed.
 
 **Agent → bridge**
 
@@ -63,8 +70,8 @@ The protocol is symmetrical JSON text frames plus binary PCM.
 {"type":"event","name":"transcript","data":{...}}   // republished to /control subscribers
 ```
 
-Constants live in [`bridge/agent.go:29`](../bridge/agent.go:29). The
-`AgentForwarder` ([`bridge/agent.go:52`](../bridge/agent.go:52)) is the
+Constants live in [`bridge/agent.go:32`](../bridge/agent.go:32). The
+`AgentForwarder` ([`bridge/agent.go:69`](../bridge/agent.go:69)) is the
 bridge-side implementation — read it to understand edge cases
 (reconnect, dial-timeout, agent-side `hangup` mapping to ESL).
 
@@ -78,6 +85,76 @@ tool calls, sentiment scores, anything an external observer might want.
 Names are arbitrary dotted strings; the bridge doesn't interpret them,
 just fans them out. Stick to a stable vocabulary so consumers can
 filter predictably.
+
+## Placing calls as an agent
+
+Your agent app places outbound calls through the bridge's `/control`
+WebSocket — there is no per-call socket before a call exists, so call
+placement is a control-plane operation:
+
+```jsonc
+{"id":"call-1","cmd":"originate","args":{
+  "dest":"sofia/gateway/trunk/18005551212",
+  "ext":"9999",                      // the AI bridge extension
+  "cid":"15551234567",               // caller ID to present
+  "metadata":"{\"customer_id\":\"42\",\"campaign\":\"winback\"}"
+}}
+```
+
+The sequence, end to end:
+
+1. The bridge runs `originate` over ESL. The reply carries the new call's
+   UUID: `{"id":"call-1","ok":true,"result":"+OK <uuid>","uuid":"<uuid>"}`.
+2. FreeSWITCH rings the destination. Watch `call.answer` / `call.hangup`
+   (with `hangup_cause`) on the same `/control` socket to learn the
+   outcome — the originate reply itself doesn't mean anyone answered.
+3. On answer, the called leg hits the dialplan extension, which starts the
+   media stream. The bridge then dials **your agent** exactly like an
+   inbound call: new per-call WebSocket, `start` frame with
+   `direction: "outbound"` and `destination` set to the dialed number.
+4. The `metadata` you passed to `originate` is set as the
+   `ws_bridge_metadata` channel variable; the stock dialplan
+   (`examples/freeswitch/dialplan-9999.xml`) forwards it as the stream
+   metadata, so it arrives in the agent's `metadata` frame. Use it for
+   customer IDs, campaign tags, CRM context — anything the agent needs to
+   personalize the call.
+
+`vars` (arbitrary channel variables) are also accepted if your dialplan
+needs them:
+
+```jsonc
+{"id":"call-2","cmd":"originate","args":{"dest":"...","vars":{"account":"acme","tries":"1"}}}
+```
+
+Note: variable values must not contain `,` or `}` — FreeSWITCH would split
+them as separators in the originate variable block.
+
+## Routing calls to different agents
+
+One `-agent-url` is enough for a single agent app. If you run multiple
+agent apps (per-tenant, per-DID, per-campaign), construct the forwarder in
+Go with a `Route` hook instead of relying on the CLI flag:
+
+```go
+fwd := &bridge.AgentForwarder{
+    URL: "ws://default-agent:9000/call", // fallback
+    ESL: eslClient,
+    Route: func(ci bridge.CallInfo) string {
+        switch ci.Destination {
+        case "18005550001":
+            return "ws://sales-agent:9000/call"
+        case "18005550002":
+            return "ws://support-agent:9000/call"
+        }
+        return "" // fall back to URL
+    },
+}
+srv := bridge.NewServer(fwd, &bridge.Options{Logger: logger})
+```
+
+`CallInfo` is resolved via ESL `uuid_dump` before the dial, so the hook can
+route on caller, destination, or direction. Returning `""` falls back to
+the static `URL`.
 
 ## Canonical reference: `examples/voicebot`
 
@@ -247,8 +324,9 @@ FreeSWITCH ───┤  fsbridge  ──────┼───ws://─── 
   Configure the LB to send `Connection: upgrade` and a long
   `proxy_read_timeout`.
 - **Multi-tenant / multi-region**: run one agent service per tenant or
-  per region. The bridge just dials the URL you give it; routing is
-  your responsibility.
+  per region and point each call at the right one with the
+  `AgentForwarder.Route` hook — see
+  [Routing calls to different agents](#routing-calls-to-different-agents).
 
 ## Run the canonical example
 
@@ -298,6 +376,7 @@ mode) and see transcripts in the voicebot logs.
   bridge side of the protocol.
 - [`examples/voicebot/main.go`](../examples/voicebot/main.go) — full
   reference implementation.
+- [deployment.md](./deployment.md) — running the stack in production.
 - [`pipeline-stages.md`](./pipeline-stages.md) — the ASR/LLM/TTS
   interfaces the voicebot composes.
 - [`control-plane.md`](./control-plane.md) — events the agent publishes

@@ -6,6 +6,17 @@
   Adjust the host as needed (host.docker.internal reaches the host machine
   from Docker Desktop; use the container name if running via compose).
 -->
+<include>
+<extension name="ws_bridge_9999_agent_call">
+  <!-- Originated agent calls: the /control originate command sets the
+       ws_bridge_metadata channel variable; pass it verbatim as the stream
+       metadata so the agent app receives its call context. -->
+  <condition field="ws_bridge_metadata" expression="^(.+)$" break="on-true">
+    <action application="set" data="api_on_answer=uuid_ws_bridge ${uuid} start ws://host.docker.internal:8090/stream mono 16k $1"/>
+    <action application="answer"/>
+    <action application="endless_playback" data="/tmp/silence.wav"/>
+  </condition>
+</extension>
 <extension name="ws_bridge_9999">
   <condition field="destination_number" expression="^9999$">
     <!-- Start the full-duplex stream on answer: mono 16kHz L16 to the bridge -->
@@ -17,3 +28,4 @@
     <action application="endless_playback" data="/tmp/silence.wav"/>
   </condition>
 </extension>
+</include>

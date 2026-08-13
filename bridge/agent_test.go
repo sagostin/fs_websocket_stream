@@ -173,6 +173,90 @@ func TestAgentForwarderAudioAndControl(t *testing.T) {
 	}
 }
 
+func TestAgentForwarderStartCallContext(t *testing.T) {
+	agent, agentURL := newFakeAgent(t)
+	esl := &fakeESL{
+		reply: "Event-Name: CHANNEL_DATA\n" +
+			"Caller-Caller-ID-Number: +15551234567\n" +
+			"Caller-Destination-Number: 9999\n" +
+			"Call-Direction: inbound\n",
+		events: make(chan ESLEvent),
+	}
+	fwd := &AgentForwarder{URL: agentURL, ESL: esl}
+
+	srv := NewServer(fwd, nil)
+	_ = moduleClient(t, srv)
+
+	select {
+	case msg := <-agent.started:
+		if msg.Caller != "+15551234567" || msg.Destination != "9999" || msg.Direction != "inbound" {
+			t.Fatalf("start frame context = %+v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent got no start frame")
+	}
+	if esl.lastCmd != "uuid_dump call-42" {
+		t.Fatalf("ESL cmd = %q, want uuid_dump call-42", esl.lastCmd)
+	}
+}
+
+func TestAgentForwarderStartCallContextNoESL(t *testing.T) {
+	agent, agentURL := newFakeAgent(t)
+	fwd := &AgentForwarder{URL: agentURL} // no ESL
+
+	srv := NewServer(fwd, nil)
+	_ = moduleClient(t, srv)
+
+	select {
+	case msg := <-agent.started:
+		if msg.Caller != "" || msg.Destination != "" || msg.Direction != "" {
+			t.Fatalf("start frame context should be empty without ESL: %+v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent got no start frame")
+	}
+}
+
+func TestAgentForwarderRouteHook(t *testing.T) {
+	defaultAgent, defaultURL := newFakeAgent(t)
+	routedAgent, routedURL := newFakeAgent(t)
+
+	fwd := &AgentForwarder{
+		URL:   defaultURL,
+		Route: func(ci CallInfo) string { return routedURL },
+	}
+	srv := NewServer(fwd, nil)
+	_ = moduleClient(t, srv)
+
+	select {
+	case <-routedAgent.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("routed agent got no start frame")
+	}
+	select {
+	case <-defaultAgent.started:
+		t.Fatal("default agent should not have been dialed")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestAgentForwarderRouteHookFallback(t *testing.T) {
+	defaultAgent, defaultURL := newFakeAgent(t)
+
+	fwd := &AgentForwarder{
+		URL:   defaultURL,
+		Route: func(ci CallInfo) string { return "" }, // no opinion
+	}
+	srv := NewServer(fwd, nil)
+	_ = moduleClient(t, srv)
+
+	select {
+	case <-defaultAgent.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("default agent got no start frame")
+	}
+}
+
 func TestAgentForwarderDownlinkAudio(t *testing.T) {
 	agent, agentURL := newFakeAgent(t)
 	fwd := &AgentForwarder{URL: agentURL}

@@ -9,6 +9,7 @@ and references to the canonical implementations in `examples/`.
 
 | Doc | When you need it |
 |---|---|
+| [deployment.md](./deployment.md) | Run the stack for real — Docker/compose, full flag & env reference, FreeSWITCH-side config, TLS/LB, health checks, production checklist. |
 | [bridge-handler.md](./bridge-handler.md) | Implement your own `bridge.Handler` (custom audio processing, transcript collection, integration with another system). |
 | [agent-apps.md](./agent-apps.md) | Build an external AI voice-agent service (e.g. your own voicebot, an agent framework integration, multi-language service). |
 | [logging.md](./logging.md) | Wire per-call logs through `slog` and Loki, correlate by FreeSWITCH UUID, publish custom events to the bus. |

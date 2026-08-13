@@ -76,6 +76,10 @@ lands on `ext` (default `9999`, i.e. the AI bridge) in context
 // dial out via SIP gateway
 {"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/trunk/18005551212","ext":"9999","cid":"15551234567"}}
 
+// attach context: vars become channel variables, metadata reaches the agent
+{"id":"1","cmd":"originate","args":{"dest":"sofia/gateway/trunk/18005551212",
+  "vars":{"account":"acme"},"metadata":"{\"customer_id\":\"42\"}"}}
+
 // run an app instead (park, voicemail, conference, ...)
 {"id":"2","cmd":"originate","args":{"dest":"loopback/9999","app":"park"}}
 ```
@@ -88,11 +92,20 @@ Args:
 | `ext` | when no `app` | Dialplan extension. Defaults to `9999`. |
 | `app` | no | Run an application on answer instead of the dialplan (e.g. `park`, `voicemail`). |
 | `cid` | no | Outbound caller ID number (sets `origination_caller_id_number`). |
+| `vars` | no | Extra originate channel variables (`{k=v,...}`). Values must not contain `,` or `}`. |
+| `metadata` | no | JSON set as the `ws_bridge_metadata` channel variable; the stock dialplan forwards it as the stream metadata, so the agent app receives it in its `metadata` frame. |
 
-The bridge returns the FreeSWITCH API reply as `result` (e.g.
-`+OK <uuid>...` for a successful originate). The bridge does **not**
-wait for the new call to answer; if you need to know that, watch the
-`call.answer` event.
+A successful reply carries the new call's UUID in `uuid` (parsed from the
+`+OK <uuid>` response), so you can correlate it with later events and
+agent sockets without string-parsing `result`:
+
+```jsonc
+{"id":"1","ok":true,"result":"+OK 7c1c9f2e-...","uuid":"7c1c9f2e-..."}
+```
+
+The bridge does **not** wait for the new call to answer; if you need to
+know that, watch the `call.answer` event (and `call.hangup` with
+`hangup_cause` for no-answer/busy).
 
 ### `hangup`
 
@@ -224,25 +237,29 @@ A service that originates calls based on an external trigger (CRM
 record, calendar reminder, scheduled job):
 
 ```go
-func dialCustomer(record Customer) error {
+func dialCustomer(record Customer) (string, error) {
+    meta, _ := json.Marshal(map[string]any{"customer_id": record.ID, "campaign": record.Campaign})
     cmd := bridge.ControlCommand{
         ID:  uuid.NewString(),
         Cmd: "originate",
         Args: json.RawMessage(fmt.Sprintf(
-            `{"dest":"sofia/gateway/trunk/%s","ext":"9999","cid":"%s"}`,
-            record.Phone, record.CallerID,
+            `{"dest":"sofia/gateway/trunk/%s","ext":"9999","cid":"%s","metadata":%q}`,
+            record.Phone, record.CallerID, meta,
         )),
     }
     reply := sendCommand(cmd)
     if !reply.OK {
-        return errors.New(reply.Error)
+        return "", errors.New(reply.Error)
     }
-    return nil
+    return reply.UUID, nil // the new call's FreeSWITCH UUID
 }
 ```
 
-Then subscribe to `/control` and react to `call.answer`, transcripts,
-and `recording.complete` for that UUID.
+Then subscribe to `/control` and react to `call.answer` (someone picked
+up), `call.hangup` with `hangup_cause` (busy / no-answer), transcripts,
+and `recording.complete` for that UUID. The `metadata` you passed rides
+the call into the agent app's `metadata` frame — see
+[agent-apps.md — Placing calls as an agent](./agent-apps.md#placing-calls-as-an-agent).
 
 ### Monitoring dashboard
 

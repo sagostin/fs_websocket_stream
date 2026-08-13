@@ -1,5 +1,5 @@
 module/build/
 module/_packages/
 *.so
-fsbridge
+/fsbridge
 .DS_Store
