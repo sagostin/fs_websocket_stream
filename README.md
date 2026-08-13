@@ -16,6 +16,22 @@ with the downlink playback half (a feature that upstream only ships in its
 closed-source commercial edition, capped at 10 concurrent channels). No such
 limits here.
 
+## Documentation
+
+How-to docs for building on top of `fs_websocket_stream`. The body of
+this README is the architecture and reference; [`docs/`](./docs/) is the
+"how do I implement X" layer — concrete patterns, working code snippets,
+and pointers to the canonical implementations in [`examples/`](./examples/).
+
+| Doc | When you need it |
+|---|---|
+| [`docs/bridge-handler.md`](./docs/bridge-handler.md) | Implement your own `bridge.Handler` (custom audio processing, transcript collection, integration with another system). |
+| [`docs/agent-apps.md`](./docs/agent-apps.md) | Build an external AI voice-agent service (your own voicebot, an agent framework integration, a multi-language service). |
+| [`docs/logging.md`](./docs/logging.md) | Per-call logging strategy — `slog` field conventions, log correlation by FreeSWITCH UUID, Loki shipping, publishing custom events. |
+| [`docs/recordings.md`](./docs/recordings.md) | Fetch recorded call bundles, build post-call pipelines (S3, eval, support UI), retention, auth. |
+| [`docs/control-plane.md`](./docs/control-plane.md) | Drive call control from an external app — originate, hangup, transfer, hold, DTMF, clear playback — and consume the event stream. |
+| [`docs/pipeline-stages.md`](./docs/pipeline-stages.md) | Swap in custom ASR/LLM/TTS implementations, tune the cascade (barge-in, system prompt, Deepgram endpointing). |
+
 Inspired by
 [this blog post](https://www.cyberpunk.tools/jekyll/update/2025/11/18/add-ai-voice-agent-to-freeswitch.html).
 
