@@ -1,0 +1,8 @@
+mod-ws-bridge (1.0.0-1) UNRELEASED; urgency=medium
+
+  * Initial release. Forked from mod_audio_stream (MIT).
+  * Added full-duplex playback: downlink WebSocket audio is injected into
+    the channel via SMBF_WRITE_REPLACE with a bounded jitter buffer.
+  * Added {"type":"clear"} control frame for barge-in playback flush.
+
+ -- fs_websocket_stream contributors <noreply@localhost>  Thu, 13 Aug 2026 09:00:00 +0000

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dialplan snippet for mod_ws_bridge.
+  Dial 9999 from any registered extension: the call is answered and its
+  audio is bridged full-duplex to the WebSocket server (the Go bridge).
+  Adjust the host as needed (host.docker.internal reaches the host machine
+  from Docker Desktop; use the container name if running via compose).
+-->
+<extension name="ws_bridge_9999">
+  <condition field="destination_number" expression="^9999$">
+    <!-- Start the full-duplex stream on answer: mono 16kHz L16 to the bridge -->
+    <action application="set" data="api_on_answer=uuid_ws_bridge ${uuid} start ws://host.docker.internal:8090/stream mono 16k {&quot;cid&quot;:&quot;${caller_id_number}&quot;,&quot;did&quot;:&quot;${destination_number}&quot;}"/>
+    <action application="answer"/>
+    <!-- Keep the write path active so the module can inject downlink audio
+         (a parked channel has no outbound media to replace). The module's
+         WRITE_REPLACE bug substitutes AI audio for the silence frames. -->
+    <action application="endless_playback" data="/tmp/silence.wav"/>
+  </condition>
+</extension>

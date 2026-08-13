@@ -1,0 +1,27 @@
+services:
+  fsbridge:
+    build:
+      context: ../..
+      dockerfile: examples/freeswitch/Dockerfile.fsbridge
+    ports:
+      # Published so the FreeSWITCH container can reach it via the host
+      # gateway (keeps one dialplan working for both compose and bare metal).
+      - "8090:8080"
+
+  freeswitch:
+    build:
+      context: ../..
+      dockerfile: examples/freeswitch/Dockerfile
+    extra_hosts:
+      # Lets the module reach the fsbridge service through the published
+      # port on the host, using the same dialplan URL everywhere.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./dialplan-9999.xml:/usr/local/freeswitch/conf/dialplan/default/01_ws_bridge.xml
+      - ./event_socket.conf.xml:/usr/local/freeswitch/conf/autoload_configs/event_socket.conf.xml
+      - ./acl.conf.xml:/usr/local/freeswitch/conf/autoload_configs/acl.conf.xml
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "8021:8021"
+      - "16384-16484:16384-16484/udp" # RTP

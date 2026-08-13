@@ -1,0 +1,5 @@
+module/build/
+module/_packages/
+*.so
+fsbridge
+.DS_Store

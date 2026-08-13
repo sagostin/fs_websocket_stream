@@ -1,0 +1,8 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: mod-ws-bridge
+Source: https://github.com/your-org/fs_websocket_stream
+
+Files: *
+Copyright: 2024-2026 Milan M. (mod_audio_stream, MIT)
+           2026 fs_websocket_stream contributors
+License: MIT

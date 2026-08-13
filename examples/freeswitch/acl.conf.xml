@@ -1,0 +1,15 @@
+<configuration name="acl.conf" description="Network Lists">
+  <network-lists>
+    <!-- Loopback + private/container networks. Test environment only;
+         tighten for production. -->
+    <list name="local.docker" default="deny">
+      <node type="allow" cidr="127.0.0.0/8"/>
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+    <list name="loopback.auto" default="deny">
+      <node type="allow" cidr="127.0.0.0/8"/>
+    </list>
+  </network-lists>
+</configuration>

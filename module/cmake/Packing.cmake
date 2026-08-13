@@ -1,0 +1,28 @@
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Bidirectional WebSocket audio bridge module for FreeSWITCH.")
+set(CPACK_PACKAGE_DESCRIPTION "mod_ws_bridge streams call audio to a WebSocket server (L16 PCM binary frames) \
+and injects audio received from the server back into the call, enabling full-duplex AI voice pipelines.")
+
+set(CPACK_PACKAGE_VENDOR "fs_websocket_stream")
+
+set(CPACK_VERBATIM_VARIABLES YES)
+
+set(CPACK_PACKAGE_INSTALL_DIRECTORY ${CPACK_PACKAGE_NAME})
+SET(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_SOURCE_DIR}/_packages")
+
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "fs_websocket_stream contributors <noreply@localhost>")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/your-org/fs_websocket_stream")
+
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)#ONE_PER_GROUP)
+set(CPACK_DEB_COMPONENT_INSTALL YES)
+
+set(CPACK_STRIP_FILES YES)
+
+include(CPack)
