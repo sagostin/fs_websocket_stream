@@ -28,4 +28,22 @@
     <action application="endless_playback" data="/tmp/silence.wav"/>
   </condition>
 </extension>
+<!-- Department landings for examples/openaibot transfers (the default
+     -routes map sends "support" -> 1002 and "billing" -> 1003). Each
+     answers and plays ringback forever, standing in for a queue or human
+     agent; replace with a real queue/bridge in production. -->
+<extension name="dept_support_1002">
+  <condition field="destination_number" expression="^1002$">
+    <action application="log" data="INFO ${uuid} transferred to support"/>
+    <action application="answer"/>
+    <action application="playback" data="tone_stream://%(2000,4000,440,480);loops=-1"/>
+  </condition>
+</extension>
+<extension name="dept_billing_1003">
+  <condition field="destination_number" expression="^1003$">
+    <action application="log" data="INFO ${uuid} transferred to billing"/>
+    <action application="answer"/>
+    <action application="playback" data="tone_stream://%(2000,4000,440,480);loops=-1"/>
+  </condition>
+</extension>
 </include>

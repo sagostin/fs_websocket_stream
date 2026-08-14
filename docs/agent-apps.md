@@ -163,6 +163,20 @@ implementation of an agent app. It's ~250 lines, single file, runs in
 two modes (`mock` for tone replies with no API keys, `ai` for the full
 Deepgram + OpenAI + ElevenLabs stack). Read it first.
 
+For a **fully OpenAI-compatible** stack — Realtime transcription ASR,
+chat completions, and `/v1/audio/speech` TTS, all with base-URL
+overrides — see [`examples/openaibot/`](../examples/openaibot/). It
+also demonstrates a JSON-action pattern: the LLM replies with
+`{"destination": "support", "response": "..."}`, the app speaks
+`response`, and a non-null `destination` is executed as a call transfer
+through `/control` (`transfer` command). This works with any
+OpenAI-compatible chat endpoint, including models without native
+tool-calling support. The example dialplan
+([`examples/freeswitch/dialplan-9999.xml`](../examples/freeswitch/dialplan-9999.xml))
+ships the default transfer targets — `support` → 1002, `billing` → 1003 —
+as ring-forever extensions standing in for a queue; in production,
+`destination` names should map to real queues or agent bridges.
+
 Key file paths:
 
 - [`examples/voicebot/main.go:38`](../examples/voicebot/main.go:38) — the

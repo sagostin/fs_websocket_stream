@@ -25,6 +25,7 @@ as the source of truth — docs describe the intent, code shows the reality.
 | Reference | What it shows |
 |---|---|
 | [`examples/voicebot/`](../examples/voicebot/) | Full external agent app: per-call state, barge-in, ASR/LLM/TTS, conversation history. |
+| [`examples/openaibot/`](../examples/openaibot/) | Fully OpenAI-compatible agent: Realtime transcription ASR + chat completions + speech TTS, JSON actions with call transfer via `/control`. |
 | [`examples/s3uploader/`](../examples/s3uploader/) | Subscribe to `/control`, on `recording.complete` upload the bundle to S3. |
 | [`examples/lb/nginx.conf`](../examples/lb/nginx.conf) | Production-ready nginx config: TLS termination, per-call affinity, WebSocket upgrade. |
 | [`cmd/fsctl/`](../cmd/fsctl/) | Tiny CLI client for the control plane — handy for shell scripting and ad-hoc testing. |

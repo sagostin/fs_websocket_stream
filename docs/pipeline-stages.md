@@ -160,6 +160,44 @@ PCM chunks flow as ElevenLabs emits them; the cascade writes each to
 the session as it arrives. `ctx` cancellation cuts the synthesis
 mid-stream — essential for barge-in.
 
+### OpenAI ASR ([`providers/openai_asr.go`](../providers/openai_asr.go))
+
+Streams caller audio to the OpenAI Realtime transcription API
+(WebSocket). Config:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `APIKey` | — | Required. |
+| `Model` | `"gpt-4o-transcribe"` | Realtime transcription model. |
+| `BaseURL` | `https://api.openai.com` | Override for OpenAI-compatible endpoints; the `ws(s)` scheme is derived from it. |
+| `Prompt` | — | Optional transcription context (domain vocabulary, setting). |
+
+Server VAD (`server_vad`) is enabled, so `input_audio_buffer.speech_started`
+maps to `EventSpeechStarted` (barge-in) and turn completion is detected
+server-side. Transcription deltas arrive as non-final `EventTranscript`s
+(increments, not cumulative partials); `...transcription.completed` is the
+authoritative final. Input is resampled from the session rate to 24 kHz.
+
+### OpenAI TTS ([`providers/openai_tts.go`](../providers/openai_tts.go))
+
+Streaming TTS via `/v1/audio/speech` with `response_format=pcm`. Config:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `APIKey` | — | Required. |
+| `Model` | `"gpt-4o-mini-tts"` | Any speech model. |
+| `Voice` | `"alloy"` | Voice name. |
+| `SampleRate` | `16000` | Session rate; the API's 24 kHz PCM is resampled to it. |
+| `BaseURL` | `https://api.openai.com` | Override for OpenAI-compatible endpoints. Note `response_format=pcm` support varies by provider. |
+
+### Resampling ([`providers/resample.go`](../providers/resample.go))
+
+`ResamplePCM16` converts mono L16 PCM between rates (linear
+interpolation); `ResampleBlockBytes` gives the block size that resamples
+exactly so stream callers can carry remainders across chunks. The OpenAI
+ASR/TTS providers use it to bridge the session rate (e.g. 16 kHz) and the
+API's fixed 24 kHz.
+
 ## Mocks
 
 `pipeline/mock.go` ships mock implementations for testing without API
@@ -405,7 +443,7 @@ transcript`, `LLM failed`).
 ## See also
 
 - [`pipeline/`](../pipeline/) — interfaces, cascade, mocks.
-- [`providers/`](../providers/) — Deepgram, OpenAI, ElevenLabs.
+- [`providers/`](../providers/) — Deepgram, OpenAI (LLM, ASR, TTS), ElevenLabs.
 - [`cmd/fsbridge/main.go`](../cmd/fsbridge/main.go) — `-mode ai`
   wiring with env vars.
 - [`bridge-handler.md`](./bridge-handler.md) — for when you want a

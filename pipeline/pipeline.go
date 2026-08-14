@@ -43,8 +43,8 @@ type ASR interface {
 
 // Message is a single conversational turn.
 type Message struct {
-	Role    string // "user" | "assistant" | "system"
-	Content string
+	Role    string `json:"role"` // "user" | "assistant" | "system"
+	Content string `json:"content"`
 }
 
 // LLM produces an assistant reply for the conversation so far.

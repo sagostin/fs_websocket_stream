@@ -173,6 +173,21 @@ barge-in, conversation history, and the same ASR/LLM/TTS stages (Deepgram /
 OpenAI / ElevenLabs, or mocks) running as a standalone service. Flags:
 `-addr :9000`, `-path /call`, `-mode mock|ai`.
 
+`examples/openaibot` is the **fully OpenAI-compatible** variant: every stage
+speaks an OpenAI-compatible API (Realtime transcription ASR → chat
+completions → `/v1/audio/speech` TTS), each with a base-URL override, and the
+LLM returns JSON actions the app executes — e.g. a `destination` field that
+transfers the call via `/control`. Flags: `-addr`, `-path`,
+`-mode mock|ai`, `-control-url`, `-routes`. Env: `OPENAI_API_KEY` (+
+optional `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_ASR_MODEL`,
+`OPENAI_ASR_PROMPT`, `OPENAI_TTS_MODEL`, `OPENAI_TTS_VOICE`). The example
+dialplan ships the default transfer targets (`support`→1002,
+`billing`→1003) as ring-forever extensions.
+
+```sh
+go run ./examples/openaibot -mode ai   # fully OpenAI-compatible agent
+```
+
 ### Placing outbound calls as an agent
 
 The agent app (or a sidecar) sends `originate` on `/control`; the reply

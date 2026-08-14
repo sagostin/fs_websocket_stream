@@ -1,6 +1,7 @@
 // Package providers contains concrete ASR/LLM/TTS implementations for the
-// pipeline package: Deepgram (streaming ASR), OpenAI (LLM) and ElevenLabs
-// (streaming TTS).
+// pipeline package: Deepgram (streaming ASR), OpenAI (LLM, realtime
+// transcription ASR, streaming TTS), ElevenLabs (streaming TTS), and a PCM
+// resampler the OpenAI audio providers use.
 package providers
 
 import (
